@@ -268,6 +268,7 @@ class StretchExercise:
             image: 処理後のフレーム。
             angle_status: 各関節の角度と評価結果 (return_angles=Trueの場合)
         """
+        # ストレッチが選択されていない場合は基本的なランドマーク表示のみ
         if self.current_stretch is None:
             image = frame.copy()
             self.mp_drawing.draw_landmarks(
@@ -287,6 +288,21 @@ class StretchExercise:
 
         # 角度評価結果を格納する辞書
         angle_status = {}
+
+        # 半透明の黒いオーバーレイを追加してテキスト読みやすくする
+        h, w = image.shape[:2]
+        overlay = image.copy()
+        cv2.rectangle(overlay, (0, 0), (w, 50), (0, 0, 0), -1)  # 上部に黒いバー
+        cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)  # 透明度30%で合成
+
+        # 現在のストレッチ名を画面上部に表示
+        stretch_name = self.current_stretch.name
+        if isinstance(stretch_name, str):
+            try:
+                stretch_name = stretch_name.encode("utf-8").decode("utf-8")
+            except UnicodeError:
+                stretch_name = stretch_name.encode("ascii", errors="ignore").decode()
+        self.draw_text(image, f"ストレッチ: {stretch_name}", 10, 30, font_scale=0.9)
 
         for angle_set_index, angle_set in enumerate(self.current_stretch.angle_sets):
             points = []
@@ -324,76 +340,92 @@ class StretchExercise:
                 "description": ", ".join([rule.description for cond in angle_set.conditions for rule in cond.rules if rule.description]),
             }
 
+            # 角度と結果を角度ごとに分かりやすく表示
+            base_y = 80 + angle_set_index * 40
+
             # 角度値と条件の結果を表示する部分を修正
-            angle_text = f"Angle {angle_set_index+1}: {int(angle)} deg "
-            self.draw_text(image, angle_text, 10, 60 + angle_set_index * 30)
+            angle_text = f"角度 {angle_set_index+1}: {int(angle)}°"
+            self.draw_text(image, angle_text, 10, base_y, font_scale=0.8)
 
             # OK/NGの表示位置を計算
-            text_size = cv2.getTextSize(angle_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-            x_offset = 10 + text_size[0] + 5  # 角度テキストの後ろに少し空白を入れる
+            text_size = cv2.getTextSize(angle_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+            x_offset = 10 + text_size[0] + 10  # 角度テキストの後ろに少し空白を入れる
 
-            for i, met in enumerate(conditions_met):
-                result_text = "OK" if met else "NG"
-                color_txt = (0, 255, 0) if met else (0, 0, 255)
-                self.draw_text(image, result_text, x_offset + i * 50, 60 + angle_set_index * 30, color=color_txt)
+            # 判定結果を表示
+            result_text = "OK" if set_conditions_met else "NG"
+            color_txt = (0, 255, 0) if set_conditions_met else (0, 0, 255)
+            self.draw_text(image, result_text, x_offset, base_y, font_scale=0.8, color=color_txt, thickness=2)
 
-            # ドット表示: 条件全体が満たされていれば緑、そうでなければ赤
-            cv2.circle(image, points[1], 10, (0, 255, 0) if set_conditions_met else (0, 0, 255), -1)
+            # 角度ラインの描画
+            cv2.line(image, points[0], points[1], (255, 255, 0), 3)  # 1つ目の線
+            cv2.line(image, points[1], points[2], (255, 255, 0), 3)  # 2つ目の線
 
-        # ランドマークを描画
-        for landmark in landmarks.landmark:
-            x = int(landmark.x * image.shape[1])
-            y = int(landmark.y * image.shape[0])
-            cv2.circle(image, (x, y), 5, (255, 255, 255), -1)
+            # 各点を色付きで強調表示
+            for i, point in enumerate(points):
+                color = (0, 0, 255) if i == 1 else (0, 255, 255)  # 中心点は赤、その他は黄色
+                cv2.circle(image, point, 8, color, -1)
 
-        # タイマー状態の更新時に全条件が満たされているかをチェック
+            # 角度の弧を描画
+            angle_viz_radius = 30
+
+            # 角度を可視化する円弧を描く
+            ba = np.array(points[0]) - np.array(points[1])
+            bc = np.array(points[2]) - np.array(points[1])
+
+            start_angle = np.arctan2(ba[1], ba[0])
+            end_angle = np.arctan2(bc[1], bc[0])
+
+            # 円弧の開始角と終了角を調整
+            if start_angle > end_angle:
+                start_angle, end_angle = end_angle, start_angle
+
+            # 円弧の色を条件に応じて変更
+            arc_color = (0, 255, 0) if set_conditions_met else (0, 0, 255)
+
+            # 円弧を描画（OpenCVは時計回りに角度を測定するため調整が必要）
+            cv2.ellipse(image, points[1], (angle_viz_radius, angle_viz_radius), 0, np.degrees(start_angle), np.degrees(end_angle), arc_color, 2)
+
+            # 角度値をテキストで表示
+            angle_text_pos = (
+                int(points[1][0] + angle_viz_radius * 1.5 * np.cos((start_angle + end_angle) / 2)),
+                int(points[1][1] + angle_viz_radius * 1.5 * np.sin((start_angle + end_angle) / 2)),
+            )
+            cv2.putText(image, f"{int(angle)}°", angle_text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, arc_color, 2)
+
+        # タイマー状態の更新
         self.update_timer(all_conditions_met)
 
-        color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
-
-        base_y = 60 + len(self.angles) * 30
-        text_bg_height = max(180, base_y + 90)
+        # フィードバック領域のオーバーレイ
+        base_y = max(80 + len(self.angles) * 40, 180)
+        text_bg_height = min(base_y + 120, h - 20)  # 画面の下部を超えないように
         overlay = image.copy()
-        cv2.rectangle(overlay, (0, 0), (500, text_bg_height), (0, 0, 0), -1)
-        image = cv2.addWeighted(overlay, 0.3, image, 0.7, 0)
+        cv2.rectangle(overlay, (0, base_y - 40), (350, text_bg_height), (0, 0, 0), -1)
+        image = cv2.addWeighted(overlay, 0.7, image, 0.3, 0)
 
-        stretch_name = self.current_stretch.name
-        # UTF-8エンコーディングの問題を回避
-        if isinstance(stretch_name, str):
-            try:
-                stretch_name = stretch_name.encode("utf-8").decode("utf-8")
-            except UnicodeError:
-                stretch_name = stretch_name.encode("ascii", errors="ignore").decode()
-
-        self.draw_text(image, f"Stretch: {stretch_name}", 10, 30)
-
-        for i, angle in enumerate(self.angles):
-            self.draw_text(image, f"Angle {i+1}: {int(angle)} deg", 10, 60 + i * 30)
-
-        base_y = 60 + len(self.angles) * 30
+        # タイマー情報の表示
         if self.current_stretch.timer.enabled:
+            timer_y = base_y
             if self.is_resting:
                 rest_remaining = self.current_stretch.timer.rest_time - (time.time() - self.rest_start)
-                self.draw_text(image, f"Resting: {int(rest_remaining)} sec", 10, base_y + 30)
+                self.draw_text(image, f"休憩時間: {int(rest_remaining)} 秒", 10, timer_y, font_scale=0.9, color=(0, 165, 255))
             elif self.timer_start is not None:
                 elapsed = time.time() - self.timer_start
-                remaining = self.current_stretch.timer.duration - elapsed
-                self.draw_text(image, f"Time left: {int(remaining)} sec", 10, base_y + 30)
-            self.draw_text(image, f"Set: {self.current_rep}/{self.current_stretch.timer.repetitions}", 10, base_y + 60)
+                remaining = max(0, self.current_stretch.timer.duration - elapsed)
+                self.draw_text(image, f"残り時間: {int(remaining)} 秒", 10, timer_y, font_scale=0.9, color=(0, 255, 255))
+            self.draw_text(
+                image, f"セット: {self.current_rep}/{self.current_stretch.timer.repetitions}", 10, timer_y + 40, font_scale=0.9, color=(255, 255, 255)
+            )
 
-        self.mp_drawing.draw_landmarks(
-            image,
-            landmarks,
-            self.mp_pose.POSE_CONNECTIONS,
-            self.mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2),
-            self.mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=2),
-        )
+        # 指示テキストを表示
+        for i, desc in enumerate(all_descriptions):
+            desc_y = text_bg_height - 20 - (len(all_descriptions) - 1 - i) * 30
+            self.draw_text(image, f"• {desc}", 10, desc_y, font_scale=0.7, color=(255, 255, 255))
 
-        for i, desc in enumerate(reversed(all_descriptions)):
-            (desc_w, desc_h), _ = cv2.getTextSize(desc, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            x = image.shape[1] - desc_w - 20
-            y = image.shape[0] - 20 - (i * (desc_h + 10))
-            self.draw_text(image, desc, x, y, font_scale=0.6)
+        # 姿勢のOK/NGに基づいて全体的な色を設定
+        pose_color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
+
+        # 姿勢の正確さに基づいて枠を描画
+        cv2.rectangle(image, (0, 0), (w - 1, h - 1), pose_color, 3)
 
         # 角度情報を返すかどうか
         return (image, angle_status) if return_angles else image

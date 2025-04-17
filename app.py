@@ -312,16 +312,27 @@ else:
         class VideoTransformer(VideoProcessorBase):
             def __init__(self):
                 # 初期化処理を軽量化
-                self.exercise = StretchExercise(str(config_path))
-                current_key = st.session_state.get("current_key", None)
-                if current_key is not None:
-                    self.exercise.set_stretch(current_key)
+                self.config_path = str(Path(__file__).parent / "config" / "stretch_config.yaml")
+                print(f"Loading config from: {self.config_path}")
+
+                try:
+                    self.exercise = StretchExercise(self.config_path)
+                    current_key = st.session_state.get("current_key", None)
+                    if current_key is not None:
+                        success = self.exercise.set_stretch(current_key)
+                        if not success:
+                            print(f"Failed to set stretch key: {current_key}")
+                    else:
+                        print("No current stretch key set")
+                except Exception as e:
+                    print(f"Error initializing StretchExercise: {e}")
+                    self.exercise = None
 
                 # MediaPipe Poseモデルの初期化
                 self.pose = mp.solutions.pose.Pose(
                     min_detection_confidence=0.5,
                     min_tracking_confidence=0.5,
-                    model_complexity=model_complexity,  # ユーザー設定を反映
+                    model_complexity=1,  # デフォルト値を使用
                     static_image_mode=False,  # 動画ストリーム向けトラッキング
                 )
 
@@ -337,208 +348,227 @@ else:
                 self.angle_status = {}
                 self.is_pose_correct = False
 
-                # 文字化け修正: UTF-8で正しく表示されるようにフィードバックテキストを変更
-                self.feedback_text = "Detecting pose..."
+                # フィードバック状態
+                self.feedback_text = "姿勢を検出中..."
                 self.feedback_color = (255, 255, 255)
                 self.hold_timer = 0.0
                 self.hold_required = 2.0  # 正しい姿勢を維持する必要がある秒数
                 self.last_eval_time = time.time()
 
-                # 音声フィードバック状態を追加
+                # 音声フィードバック状態
                 self.last_pose_state = False
                 self.pose_state_changed = False
-                self.audio_cooldown = 0
                 self.last_audio_time = time.time()
-
-                # 猶予期間の追跡を追加
                 self.grace_start = None
-                self.grace_period = 2.0  # 秒
+                self.grace_period = 2.0  # 猶予期間（秒）
 
             def _handle_grace_period(self, current_time):
+                """猶予期間の処理ロジック"""
                 if self.grace_start is None:
                     self.grace_start = current_time
                 elif current_time - self.grace_start > self.grace_period:
-                    self.feedback_text = "Posture incorrect! Please adjust."
+                    self.feedback_text = "姿勢が不正確です！調整してください。"
                     self.feedback_color = (0, 0, 255)  # 赤色
                     self.grace_start = None  # Reset grace period
+                else:
+                    # 猶予期間中のフィードバック
+                    self.feedback_text = f"姿勢を調整中... ({int(self.grace_period - (current_time - self.grace_start))}秒)"
+                    self.feedback_color = (0, 165, 255)  # オレンジ色
 
             def recv(self, frame):
-                img = frame.to_ndarray(format="bgr24")
-                # フリップ操作を追加して自然な向きにする
-                img = cv2.flip(img, 1)
+                """フレームを受信して処理"""
+                try:
+                    img = frame.to_ndarray(format="bgr24")
+                    # フリップ操作を追加して自然な向きにする
+                    img = cv2.flip(img, 1)
 
-                # MediaPipe処理用にRGB変換＆writeableフラグ設定
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img_rgb.flags.writeable = False
+                    # 画面サイズを取得
+                    h, w = img.shape[:2]
 
-                # 画像寸法情報を明示的に渡すために追加
-                h, w = img.shape[:2]
+                    # MediaPipe処理用にRGB変換
+                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    img_rgb.flags.writeable = False
 
-                # MediaPipeによるポーズ検出処理
-                # ROIを設定して画像次元情報をMediaPipeに提供
-                results = self.pose.process(img_rgb)
+                    # MediaPipeによるポーズ検出処理
+                    results = self.pose.process(img_rgb)
 
-                img_rgb.flags.writeable = True
-                img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+                    # 描画用に戻す
+                    img_rgb.flags.writeable = True
+                    img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-                # 状態と時間の更新
-                self.phase = st.session_state.get("exercise_phase", "idle")
-                current_time = time.time()
-                fps = 1.0 / (current_time - self.last_frame_time)
-                self.last_frame_time = current_time
+                    # 状態と時間の更新
+                    current_time = time.time()
+                    fps = 1.0 / max(0.001, current_time - self.last_frame_time)
+                    self.last_frame_time = current_time
 
-                # ポーズが検出された場合の処理
-                if results.pose_landmarks:
-                    # まずMediaPipeの標準描画で骨格を描く
-                    self.mp_drawing.draw_landmarks(
-                        img,
-                        results.pose_landmarks,
-                        self.mp_pose.POSE_CONNECTIONS,
-                        self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                        self.mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=2),
-                    )
+                    # デバッグモードの指定
+                    debug_mode = st.session_state.get("show_angles", False)
 
-                    try:
-                        # 関節角度の評価とフレーム処理
-                        processed_img, self.angle_status = self.exercise.process_frame(
-                            img.copy(), self.pose, results.pose_landmarks, return_angles=True
+                    # 描画のベースレイヤーをコピー
+                    display_img = img.copy()
+
+                    # ポーズ検出をデバッグ表示
+                    cv2.putText(display_img, f"FPS: {int(fps)}", (w - 120, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+                    # ポーズが検出されたかどうか確認
+                    if results.pose_landmarks:
+                        # ポーズが検出されたときの処理
+                        if self.exercise is not None and st.session_state.get("current_key") is not None:
+                            try:
+                                # StretchExerciseクラスを使って姿勢評価
+                                processed_img, self.angle_status = self.exercise.process_frame(
+                                    img, self.pose, results.pose_landmarks, return_angles=True
+                                )
+
+                                # 処理が成功したら、処理された画像を使用
+                                display_img = processed_img
+
+                                # 角度評価結果からポーズの正確さを判定
+                                conditions_met = []
+                                for status in self.angle_status.values():
+                                    if "is_correct" in status:
+                                        conditions_met.append(status["is_correct"])
+
+                                # 少なくとも1つの条件がある場合に判定
+                                if conditions_met:
+                                    self.is_pose_correct = all(conditions_met)
+                                else:
+                                    self.is_pose_correct = False
+
+                                # タイマー開始前の準備状態の場合
+                                if st.session_state.get("exercise_phase") == "active" and not self.exercise.timer_started:
+                                    # 姿勢状態が変わったことを検出
+                                    if self.is_pose_correct != self.last_pose_state:
+                                        self.pose_state_changed = True
+                                        self.last_pose_state = self.is_pose_correct
+                                    else:
+                                        self.pose_state_changed = False
+
+                                    if self.is_pose_correct:
+                                        # 猶予期間をリセット
+                                        self.grace_start = None
+
+                                        # 正しい姿勢を保持した時間を計測
+                                        if self.hold_timer == 0:
+                                            self.hold_timer = current_time
+                                            self.feedback_text = f"姿勢をキープ... {self.hold_required:.1f}秒"
+                                            self.feedback_color = (0, 255, 255)  # 黄色
+                                        else:
+                                            hold_duration = current_time - self.hold_timer
+                                            # 必要な時間だけ姿勢を保持したらタイマー開始
+                                            if hold_duration >= self.hold_required:
+                                                # タイマー開始
+                                                success = self.exercise.start_timer()
+                                                self.hold_timer = 0
+                                                self.feedback_text = "エクササイズ開始！タイマー実行中"
+                                                self.feedback_color = (0, 255, 0)  # 緑色
+
+                                                # タイマー開始時のセッション状態更新
+                                                if success:
+                                                    st.session_state.play_timer_start_sound = True
+                                                    st.session_state.exercise_start_time = current_time
+                                            else:
+                                                # 保持中のカウントダウン表示
+                                                remaining = self.hold_required - hold_duration
+                                                self.feedback_text = f"姿勢をキープ... {remaining:.1f}秒"
+                                                self.feedback_color = (0, 255, 255)  # 黄色
+                                    else:
+                                        # 正しくない姿勢の場合は猶予期間を処理
+                                        self._handle_grace_period(current_time)
+
+                                        # 姿勢が正しくない場合はタイマーリセット
+                                        self.hold_timer = 0
+
+                                # タイマー動作中またはレスト中
+                                elif st.session_state.get("exercise_phase") == "active" and self.exercise.timer_started:
+                                    if self.exercise.is_resting:
+                                        self.feedback_text = "休憩中... 次のセットの準備をしてください"
+                                        self.feedback_color = (0, 165, 255)  # オレンジ
+                                    else:
+                                        self.feedback_text = "エクササイズ実施中... 姿勢を維持してください"
+                                        self.feedback_color = (0, 255, 0)  # 緑色
+
+                                        # タイマー動作中に姿勢が崩れた場合も猶予期間を提供
+                                        if not self.is_pose_correct:
+                                            self._handle_grace_period(current_time)
+                                        else:
+                                            # 正しい姿勢に戻った場合は猶予期間をリセット
+                                            self.grace_start = None
+
+                                # 各関節の角度表示（デバッグ情報）
+                                if debug_mode:
+                                    y_pos = 100
+                                    for joint, data in self.angle_status.items():
+                                        if "angle" in data:
+                                            status_color = (0, 255, 0) if data.get("is_correct", False) else (0, 0, 255)
+                                            angle_text = f"{joint}: {data['angle']:.1f}° {'✓' if data.get('is_correct', False) else '✗'}"
+                                            cv2.putText(display_img, angle_text, (w - 250, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, status_color, 1)
+                                            y_pos += 25
+                                            # ルールの説明を表示
+                                            if data.get("description"):
+                                                cv2.putText(
+                                                    display_img,
+                                                    data["description"],
+                                                    (w - 250, y_pos),
+                                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                                    0.5,
+                                                    (255, 255, 255),
+                                                    1,
+                                                )
+                                                y_pos += 25
+
+                                # 姿勢ステータス（OK/NG）表示を強調表示
+                                posture_text = "姿勢OK" if self.is_pose_correct else "姿勢NG"
+                                posture_color = (0, 255, 0) if self.is_pose_correct else (0, 0, 255)
+                                # 濃い背景で目立たせる
+                                cv2.rectangle(display_img, (20, 15), (200, 45), (0, 0, 0), -1)
+                                cv2.putText(display_img, posture_text, (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, posture_color, 3)
+
+                                # フィードバックテキスト表示を追加
+                                # テキスト背景を追加
+                                feedback_size = cv2.getTextSize(self.feedback_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+                                text_w = feedback_size[0][0]
+                                cv2.rectangle(display_img, (30, h - 50), (30 + text_w + 20, h - 20), (0, 0, 0), -1)
+                                cv2.putText(display_img, self.feedback_text, (40, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.feedback_color, 2)
+
+                                # セッション状態を更新
+                                st.session_state.current_rep = self.exercise.current_rep
+                                st.session_state.exercise_phase = "rest" if self.exercise.is_resting else "active"
+                                st.session_state.posture_ok = self.is_pose_correct
+
+                            except Exception as e:
+                                print(f"Error processing frame: {str(e)}")
+                                # エラーメッセージを画面に表示
+                                error_msg = f"Error: {str(e)[:50]}"
+                                cv2.putText(display_img, error_msg, (10, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                        else:
+                            # ストレッチが選択されていない場合、基本的なポーズ表示のみ
+                            self.mp_drawing.draw_landmarks(
+                                display_img,
+                                results.pose_landmarks,
+                                self.mp_pose.POSE_CONNECTIONS,
+                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                                self.mp_drawing.DrawingSpec(color=(255, 255, 255), thickness=2, circle_radius=2),
+                            )
+
+                            cv2.putText(
+                                display_img, "ストレッチを選択してください", (w // 2 - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+                            )
+                    else:
+                        # ポーズが検出されない場合のプロンプト
+                        cv2.putText(display_img, "ポーズが検出されません", (w // 2 - 150, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        cv2.putText(
+                            display_img, "カメラの前に立ってください", (w // 2 - 170, h // 2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2
                         )
 
-                        # 処理が成功したら、処理された画像を使用
-                        img = processed_img
+                    return av.VideoFrame.from_ndarray(display_img, format="bgr24")
 
-                        # 角度評価結果からポーズの正確さを判定
-                        if len(self.angle_status) > 0:
-                            self.is_pose_correct = all(
-                                status.get("is_correct", False) for status in self.angle_status.values() if "is_correct" in status
-                            )
-                        else:
-                            self.is_pose_correct = False
-                    except Exception as e:
-                        # エラーが発生した場合、元の画像を維持し、エラーを表示
-                        print(f"Error processing frame: {e}")
-                        cv2.putText(img, f"Error: {str(e)[:50]}", (10, h - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1)
-                        self.is_pose_correct = False
-
-                    # タイマー開始前の準備状態の場合
-                    if self.phase == "active" and not self.exercise.timer_started:
-                        # 姿勢状態が変わったことを検出
-                        if self.is_pose_correct != self.last_pose_state:
-                            self.pose_state_changed = True
-                            self.last_pose_state = self.is_pose_correct
-                        else:
-                            self.pose_state_changed = False
-
-                        if self.is_pose_correct:
-                            # 猶予期間をリセット
-                            self.grace_start = None
-
-                            # 正しい姿勢を保持した時間を計測
-                            if self.hold_timer == 0:
-                                self.hold_timer = current_time
-                                self.feedback_text = f"Hold position... {self.hold_required:.1f}s"
-                                self.feedback_color = (0, 255, 255)  # 黄色
-                            else:
-                                hold_duration = current_time - self.hold_timer
-                                # 必要な時間だけ姿勢を保持したらタイマー開始
-                                if hold_duration >= self.hold_required:
-                                    # タイマー開始
-                                    success = self.exercise.start_timer()
-                                    self.hold_timer = 0
-                                    self.feedback_text = "Exercise started! Timer running"
-                                    self.feedback_color = (0, 255, 0)  # 緑色
-
-                                    # タイマー開始時の音声 - start.wavを再生
-                                    if success:
-                                        st.session_state.play_timer_start_sound = True
-                                        # Sync UI timer start time when internal timer starts
-                                        st.session_state.exercise_start_time = time.time()
-                                else:
-                                    # 保持中のカウントダウン表示
-                                    remaining = self.hold_required - hold_duration
-                                    self.feedback_text = f"Hold position... {remaining:.1f}s"
-                                    self.feedback_color = (0, 255, 255)  # 黄色
-                        else:
-                            # 正しくない姿勢の場合は猶予期間を処理
-                            self._handle_grace_period(current_time)
-
-                            # 姿勢が正しくない場合はタイマーリセット
-                            self.hold_timer = 0
-                            self.feedback_text = "Get into the correct position"
-                            self.feedback_color = (0, 165, 255)  # オレンジ
-
-                    # タイマー動作中またはレスト中
-                    elif self.phase == "active" and self.exercise.timer_started:
-                        if self.exercise.is_resting:
-                            self.feedback_text = "Rest period... Prepare for next set"
-                            self.feedback_color = (0, 165, 255)  # オレンジ
-                        else:
-                            self.feedback_text = "Exercise in progress... Maintain posture"
-                            self.feedback_color = (0, 255, 0)  # 緑色
-
-                            # タイマー動作中に姿勢が崩れた場合も猶予期間を提供
-                            if not self.is_pose_correct:
-                                self._handle_grace_period(current_time)
-                            else:
-                                # 正しい姿勢に戻った場合は猶予期間をリセット
-                                self.grace_start = None
-
-                    # 各関節の角度表示（デバッグ情報）を追加
-                    if st.session_state.get("show_angles", False):
-                        y_pos = 100
-                        for joint, data in self.angle_status.items():
-                            if "angle" in data:
-                                status_color = (0, 255, 0) if data.get("is_correct", False) else (0, 0, 255)
-                                angle_text = f"{joint}: {data['angle']:.1f}° {'✓' if data.get('is_correct', False) else '✗'}"
-                                cv2.putText(img, angle_text, (w - 250, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, status_color, 1)
-                                y_pos += 25
-                                # ルールの説明を表示
-                                if data.get("description"):
-                                    cv2.putText(img, data["description"], (w - 250, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                                    y_pos += 25
-
-                    # エクササイズ/レスト表示
-                    phase_label = "REST" if self.exercise.is_resting else "EXERCISE"
-                    phase_color = (0, 165, 255) if self.exercise.is_resting else (0, 255, 0)
-                    cv2.putText(img, phase_label, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.5, phase_color, 4)
-
-                    # FPS表示
-                    cv2.putText(img, f"FPS: {fps:.1f}", (w - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1)
-
-                    # 姿勢ステータス（OK/NG）表示
-                    posture_text = "OK" if self.is_pose_correct else "NG"
-                    posture_color = (0, 255, 0) if self.is_pose_correct else (0, 0, 255)
-                    cv2.putText(img, f"Posture: {posture_text}", (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, posture_color, 3)
-
-                    # 姿勢評価とフィードバックの表示
-                    cv2.putText(img, self.feedback_text, (30, h - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.feedback_color, 2)
-
-                    # 全セット完了チェックを追加
-                    if self.exercise.current_rep > self.exercise.current_stretch.timer.repetitions:
-                        # 全セット完了時のフィードバック表示
-                        self.feedback_text = "All sets completed! Great work!"
-                        self.feedback_color = (0, 255, 0)  # 緑色
-
-                        # 音声フィードバック
-                        if not hasattr(self, "all_complete_announced") or not self.all_complete_announced:
-                            st.session_state.play_all_complete_sound = True
-                            self.all_complete_announced = True
-                else:
-                    # ポーズが検出されない場合のプロンプト
-                    h, w = img.shape[:2]
-                    cv2.putText(img, "No pose detected", (w // 2 - 150, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    cv2.putText(img, "Please stand in frame", (w // 2 - 170, h // 2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-
-                # Streamlitのセッション状態と同期
-                try:
-                    st.session_state.current_rep = self.exercise.current_rep
-                    st.session_state.exercise_phase = "rest" if self.exercise.is_resting else "active"
-                    # Update overall posture correctness status for UI display
-                    st.session_state.posture_ok = self.is_pose_correct
                 except Exception as e:
-                    print(f"Error updating session state: {e}")
-
-                return av.VideoFrame.from_ndarray(img, format="bgr24")
+                    print(f"Fatal error in recv method: {str(e)}")
+                    # エラーが発生した場合でも何かを返す必要がある
+                    error_frame = frame.to_ndarray(format="bgr24")
+                    cv2.putText(error_frame, f"Error: {str(e)[:50]}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    return av.VideoFrame.from_ndarray(error_frame, format="bgr24")
 
         # Improved webcam streamer UI with better framing
         st.markdown('<div class="video-container">', unsafe_allow_html=True)
