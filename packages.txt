@@ -1,14 +1,10 @@
 libgl1-mesa-glx
+libgl1
 libsm6
 libxext6
 libxrender1
 libglib2.0-0
-libgl1-mesa-dri
 freeglut3-dev
 libgtk2.0-dev
-libgl1
 ffmpeg
-libsm6
-libxext6
 libfontconfig1
-libxrender1

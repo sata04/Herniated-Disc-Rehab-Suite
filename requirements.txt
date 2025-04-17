@@ -1,6 +1,6 @@
 streamlit
 streamlit-webrtc
-opencv-python-headless
+opencv-python-headless>=4.5.0
 mediapipe
 numpy
 playsound3
