@@ -1,0 +1,144 @@
+stretches:
+  - name: "1 Lying Face Down"
+    key: 1
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [165, 180]
+                description: "Hold 2min"
+    timer:
+      enabled: true
+      duration: 120
+      repetitions: 1
+      rest_time: 10
+
+  - name: "2 Lying Face Down in Extension"
+    key: 2
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [150, 170]
+                description: "Hold 2min"
+    timer:
+      enabled: true
+      duration: 120
+      repetitions: 1
+      rest_time: 10
+
+  - name: "3 Extension in Lying"
+    key: 3
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [130, 145]
+                description: "Hold 2sec"
+    timer:
+      enabled: true
+      duration: 2
+      repetitions: 10
+      rest_time: 3
+
+  - name: "4 Extension in Standing"
+    key: 4
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [130, 165]
+                description: "Hold 2sec"
+    timer:
+      enabled: true
+      duration: 2
+      repetitions: 10
+      rest_time: 3
+
+  - name: "5 Flexion in Lying"
+    key: 5
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [0, 55]
+                description: "Hold 2sec"
+      - landmarks:
+          - RIGHT_HIP
+          - RIGHT_KNEE
+          - RIGHT_ANKLE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [0, 50]
+                description: ""
+    timer:
+      enabled: true
+      duration: 2
+      repetitions: 6
+      rest_time: 3
+
+  - name: "6 Flexion in Sitting"
+    key: 6
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [0, 30]
+                description: "Hold 2sec"
+      - landmarks:
+          - RIGHT_HIP
+          - RIGHT_KNEE
+          - RIGHT_ANKLE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [80, 110]
+                description: ""
+    timer:
+      enabled: true
+      duration: 2
+      repetitions: 6
+      rest_time: 3
+
+  - name: "7 Flexion in Standing"
+    key: 7
+    angle_sets:
+      - landmarks:
+          - RIGHT_SHOULDER
+          - RIGHT_HIP
+          - RIGHT_KNEE
+        conditions:
+          - type: "AND"
+            rules:
+              - angle: [0, 80]
+                description: "Do not hold"
+    timer:
+      enabled: true
+      duration: 0.1
+      repetitions: 6
+      rest_time: 2

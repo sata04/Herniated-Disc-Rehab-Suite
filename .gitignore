@@ -122,3 +122,23 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# macOS固有のファイル
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# IDE固有のファイル
+.idea/
+.vscode/
+*.swp
+*.swo
