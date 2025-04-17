@@ -1,3 +1,5 @@
+# filepath: /Users/71-Sota-Nakahara/code/Herniated Disc Rehab Suite/src/exercise.py
+# -*- coding: utf-8 -*-
 import logging
 import os  # for handling file paths
 import time
@@ -294,7 +296,8 @@ class StretchExercise:
             for landmark_name in angle_set.landmarks:
                 landmark_index = getattr(self.mp_pose.PoseLandmark, landmark_name).value
                 landmark = landmarks.landmark[landmark_index]
-                x, y = int(landmark.x * image.shape[1]), int(landmark.y * image.shape[0])
+                x = int(landmark.x * image.shape[1])
+                y = int(landmark.y * image.shape[0])
                 points.append((x, y))
                 point_indices.append(landmark_index)
 
@@ -588,4 +591,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # 実行ブロックをコメントアウトし、ライブラリとして利用されるようにします。
+    # main()
+    pass
