@@ -18,6 +18,8 @@ from src.exercise import StretchExercise
 # TensorFlow/MediaPipeの警告抑制のための環境変数設定
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # TensorFlowのログを非表示
 os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"  # GPUに関する警告を抑制
+os.environ["AUTOGRAPH_VERBOSITY"] = "0"  # AutoGraphの冗長出力を抑制
+os.environ["TF_CPP_VMODULE"] = "xnnpack_delegate=0"  # XNNPACKデレゲートのログを抑制
 
 # Configure log levels to suppress verbose output
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
@@ -26,9 +28,15 @@ logging.getLogger("mediapipe").setLevel(logging.ERROR)  # MediaPipeのログを�
 av.logging.set_level(av.logging.PANIC)
 
 # MediaPipeの特定の警告を無視するフィルター追加
-logging.getLogger("mediapipe").addFilter(
+mediapipe_logger = logging.getLogger("mediapipe")
+mediapipe_logger.setLevel(logging.ERROR)
+mediapipe_logger.addFilter(
     lambda record: False if "landmark_projection_calculator" in record.getMessage() or "feedback manager" in record.getMessage().lower() else True
 )
+
+# TensorFlowの警告を完全に無視
+tf_logger = logging.getLogger("tensorflow")
+tf_logger.setLevel(logging.FATAL)  # ERRORよりも厳格なFATAL
 
 # Streamlitの特定の警告を無視
 warnings.filterwarnings("ignore", message="missing ScriptRunContext")
