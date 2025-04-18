@@ -1,4 +1,3 @@
-# filepath: /Users/71-Sota-Nakahara/code/Herniated Disc Rehab Suite/src/exercise.py
 # -*- coding: utf-8 -*-
 import logging
 import os  # for handling file paths
@@ -118,6 +117,16 @@ class StretchExercise:
             print(f"Timer started for {self.current_stretch.name}")
             return True
         return False
+    
+    def stop_timer(self):
+        """タイマーを停止"""
+        self.timer_start = None
+        self._timer_started = False
+        self.start_sound_played = False
+        self.end_sound_played = False
+        self.grace_start = None
+        print("Timer stopped")
+        return True
 
     def _load_config(self, config_file: str) -> Dict[int, Stretch]:
         """
@@ -302,7 +311,7 @@ class StretchExercise:
                 stretch_name = stretch_name.encode("utf-8").decode("utf-8")
             except UnicodeError:
                 stretch_name = stretch_name.encode("ascii", errors="ignore").decode()
-        self.draw_text(image, f"ストレッチ: {stretch_name}", 10, 30, font_scale=0.9)
+        self.draw_text(image, f"Stretch: {stretch_name}", 10, 30, font_scale=0.9)
 
         for angle_set_index, angle_set in enumerate(self.current_stretch.angle_sets):
             points = []
@@ -344,7 +353,7 @@ class StretchExercise:
             base_y = 80 + angle_set_index * 40
 
             # 角度値と条件の結果を表示する部分を修正
-            angle_text = f"角度 {angle_set_index+1}: {int(angle)}°"
+            angle_text = f"Angle {angle_set_index+1}: {int(angle)}°"
             self.draw_text(image, angle_text, 10, base_y, font_scale=0.8)
 
             # OK/NGの表示位置を計算
@@ -368,32 +377,52 @@ class StretchExercise:
             # 角度の弧を描画
             angle_viz_radius = 30
 
-            # 角度を可視化する円弧を描く
+            # 角度を可視化する円弧を描く - 計算方法を改善
             ba = np.array(points[0]) - np.array(points[1])
             bc = np.array(points[2]) - np.array(points[1])
 
+            # 角度を計算（内積を使用）
+            # アーク描画には直接角度から生成するため、cosine_angleは不要
+
+            # ベクトルの向きを考慮して円弧の開始角と終了角を決定
             start_angle = np.arctan2(ba[1], ba[0])
             end_angle = np.arctan2(bc[1], bc[0])
 
-            # 円弧の開始角と終了角を調整
-            if start_angle > end_angle:
-                start_angle, end_angle = end_angle, start_angle
+            # 円弧の角度範囲を適切に設定
+            # 角度が180度を超える場合に対応
+            if abs(end_angle - start_angle) > np.pi:
+                if end_angle > start_angle:
+                    start_angle += 2 * np.pi
+                else:
+                    end_angle += 2 * np.pi
 
             # 円弧の色を条件に応じて変更
             arc_color = (0, 255, 0) if set_conditions_met else (0, 0, 255)
 
-            # 円弧を描画（OpenCVは時計回りに角度を測定するため調整が必要）
-            cv2.ellipse(image, points[1], (angle_viz_radius, angle_viz_radius), 0, np.degrees(start_angle), np.degrees(end_angle), arc_color, 2)
+            # OpenCVのellipseは角度をdegree単位で必要とする
+            start_deg = np.degrees(start_angle)
+            end_deg = np.degrees(end_angle)
 
-            # 角度値をテキストで表示
+            # 開始角と終了角を確実に円弧が短い方を描くよう調整
+            if abs(end_deg - start_deg) > 180:
+                if end_deg > start_deg:
+                    end_deg, start_deg = start_deg, end_deg
+
+            # 円弧を描画
+            cv2.ellipse(image, points[1], (angle_viz_radius, angle_viz_radius), 0, start_deg, end_deg, arc_color, 2)
+
+            # 角度値をテキストで表示 - 位置を調整
+            mid_angle = (start_angle + end_angle) / 2
             angle_text_pos = (
-                int(points[1][0] + angle_viz_radius * 1.5 * np.cos((start_angle + end_angle) / 2)),
-                int(points[1][1] + angle_viz_radius * 1.5 * np.sin((start_angle + end_angle) / 2)),
+                int(points[1][0] + angle_viz_radius * 1.8 * np.cos(mid_angle)),
+                int(points[1][1] + angle_viz_radius * 1.8 * np.sin(mid_angle)),
             )
             cv2.putText(image, f"{int(angle)}°", angle_text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, arc_color, 2)
 
         # タイマー状態の更新
-        self.update_timer(all_conditions_met)
+        # return_angles=TrueのときはVideoTransformer側でタイマー制御するためここでは呼ばない
+        if not return_angles:
+            self.update_timer(all_conditions_met)
 
         # フィードバック領域のオーバーレイ
         base_y = max(80 + len(self.angles) * 40, 180)
@@ -402,18 +431,18 @@ class StretchExercise:
         cv2.rectangle(overlay, (0, base_y - 40), (350, text_bg_height), (0, 0, 0), -1)
         image = cv2.addWeighted(overlay, 0.7, image, 0.3, 0)
 
-        # タイマー情報の表示
+        # タイマー情報の表示 (英語)
         if self.current_stretch.timer.enabled:
             timer_y = base_y
             if self.is_resting:
-                rest_remaining = self.current_stretch.timer.rest_time - (time.time() - self.rest_start)
-                self.draw_text(image, f"休憩時間: {int(rest_remaining)} 秒", 10, timer_y, font_scale=0.9, color=(0, 165, 255))
+                rest_remaining = max(0, self.current_stretch.timer.rest_time - (time.time() - self.rest_start))
+                self.draw_text(image, f"Rest time: {int(rest_remaining)} sec", 10, timer_y, font_scale=0.9, color=(0, 165, 255))
             elif self.timer_start is not None:
                 elapsed = time.time() - self.timer_start
                 remaining = max(0, self.current_stretch.timer.duration - elapsed)
-                self.draw_text(image, f"残り時間: {int(remaining)} 秒", 10, timer_y, font_scale=0.9, color=(0, 255, 255))
+                self.draw_text(image, f"Time left: {int(remaining)} sec", 10, timer_y, font_scale=0.9, color=(0, 255, 255))
             self.draw_text(
-                image, f"セット: {self.current_rep}/{self.current_stretch.timer.repetitions}", 10, timer_y + 40, font_scale=0.9, color=(255, 255, 255)
+                image, f"Set: {self.current_rep}/{self.current_stretch.timer.repetitions}", 10, timer_y + 40, font_scale=0.9, color=(255, 255, 255)
             )
 
         # 指示テキストを表示
@@ -423,6 +452,14 @@ class StretchExercise:
 
         # 姿勢のOK/NGに基づいて全体的な色を設定
         pose_color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
+
+        # ステータステキストを表示
+        status_text = "CORRECT" if all_conditions_met else "INCORRECT"
+        status_color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
+
+        # 画面上部にステータステキストを目立つように表示
+        cv2.rectangle(image, (w - 200, 5), (w - 20, 45), (0, 0, 0), -1)
+        self.draw_text(image, status_text, w - 190, 35, font_scale=0.8, color=status_color, thickness=2)
 
         # 姿勢の正確さに基づいて枠を描画
         cv2.rectangle(image, (0, 0), (w - 1, h - 1), pose_color, 3)
@@ -462,15 +499,18 @@ class StretchExercise:
         current_time = time.time()
 
         if all_conditions_met and not self.is_resting:
+            # 姿勢が正しく、休憩中でない場合の処理
             if self.timer_start is None:
                 # タイマーがまだ開始されていない場合
                 if not self._timer_started:
+                    # タイマー開始処理を確実に行う
                     self.timer_start = current_time
                     if not self.start_sound_played:
                         self.play_sound(os.path.join("sounds", "start.wav"))
                         self.start_sound_played = True
                     self.end_sound_played = False
                     self._timer_started = True  # タイマー開始フラグを設定
+                    self.grace_start = None  # 猶予期間をリセット
                     print(f"Timer started at {self.timer_start}")
             # timer_start が設定されている場合のみ経過時間を計算
             if self.timer_start is not None:
@@ -480,7 +520,8 @@ class StretchExercise:
         elif self.is_resting:
             self._handle_rest_time()
         else:
-            self._handle_grace_period()
+            # 姿勢が正しくない場合の処理
+            self._handle_grace_period(current_time)
 
     def _handle_timer_completion(self):
         """タイマー完了時の処理を行います"""
@@ -513,11 +554,14 @@ class StretchExercise:
             self.start_sound_played = False
             self.end_sound_played = False
 
-    def _handle_grace_period(self):
+    def _handle_grace_period(self, current_time=None):
         """猶予期間の処理を行います"""
+        if current_time is None:
+            current_time = time.time()
+
         if self.grace_start is None:
-            self.grace_start = time.time()
-        elif time.time() - self.grace_start >= 2:
+            self.grace_start = current_time
+        elif current_time - self.grace_start >= 2:
             self.timer_start = None
             self.start_sound_played = False
             self.end_sound_played = False

@@ -349,16 +349,10 @@ else:
                 self.is_pose_correct = False
 
                 # フィードバック状態
-                self.feedback_text = "姿勢を検出中..."
+                self.feedback_text = "Detecting posture..."
                 self.feedback_color = (255, 255, 255)
-                self.hold_timer = 0.0
+                self.hold_timer = None  # Noneで未計測を明示
                 self.hold_required = 2.0  # 正しい姿勢を維持する必要がある秒数
-                self.last_eval_time = time.time()
-
-                # 音声フィードバック状態
-                self.last_pose_state = False
-                self.pose_state_changed = False
-                self.last_audio_time = time.time()
                 self.grace_start = None
                 self.grace_period = 2.0  # 猶予期間（秒）
 
@@ -367,13 +361,12 @@ else:
                 if self.grace_start is None:
                     self.grace_start = current_time
                 elif current_time - self.grace_start > self.grace_period:
-                    self.feedback_text = "姿勢が不正確です！調整してください。"
+                    # 猶予期間経過でタイマーリセット
+                    if self.exercise and self.exercise.timer_started:
+                        self.exercise.stop_timer()
+                        self.hold_timer = None
+                    self.feedback_text = "Incorrect posture! Please adjust."
                     self.feedback_color = (0, 0, 255)  # 赤色
-                    self.grace_start = None  # Reset grace period
-                else:
-                    # 猶予期間中のフィードバック
-                    self.feedback_text = f"姿勢を調整中... ({int(self.grace_period - (current_time - self.grace_start))}秒)"
-                    self.feedback_color = (0, 165, 255)  # オレンジ色
 
             def recv(self, frame):
                 """フレームを受信して処理"""
@@ -424,76 +417,46 @@ else:
                                 display_img = processed_img
 
                                 # 角度評価結果からポーズの正確さを判定
-                                conditions_met = []
-                                for status in self.angle_status.values():
-                                    if "is_correct" in status:
-                                        conditions_met.append(status["is_correct"])
+                                conditions_met = [status.get("is_correct", False) for status in self.angle_status.values()]
+                                self.is_pose_correct = all(conditions_met) if conditions_met else False
 
-                                # 少なくとも1つの条件がある場合に判定
-                                if conditions_met:
-                                    self.is_pose_correct = all(conditions_met)
-                                else:
-                                    self.is_pose_correct = False
-
-                                # タイマー開始前の準備状態の場合
+                                # タイマー未開始時: 正しい姿勢を一定時間保持でタイマー開始
                                 if st.session_state.get("exercise_phase") == "active" and not self.exercise.timer_started:
-                                    # 姿勢状態が変わったことを検出
-                                    if self.is_pose_correct != self.last_pose_state:
-                                        self.pose_state_changed = True
-                                        self.last_pose_state = self.is_pose_correct
-                                    else:
-                                        self.pose_state_changed = False
-
                                     if self.is_pose_correct:
-                                        # 猶予期間をリセット
                                         self.grace_start = None
-
-                                        # 正しい姿勢を保持した時間を計測
-                                        if self.hold_timer == 0:
+                                        if self.hold_timer is None:
                                             self.hold_timer = current_time
-                                            self.feedback_text = f"姿勢をキープ... {self.hold_required:.1f}秒"
-                                            self.feedback_color = (0, 255, 255)  # 黄色
+                                            self.feedback_text = f"Hold posture... {self.hold_required:.1f}s"
+                                            self.feedback_color = (0, 255, 255)
                                         else:
                                             hold_duration = current_time - self.hold_timer
-                                            # 必要な時間だけ姿勢を保持したらタイマー開始
                                             if hold_duration >= self.hold_required:
-                                                # タイマー開始
                                                 success = self.exercise.start_timer()
-                                                self.hold_timer = 0
-                                                self.feedback_text = "エクササイズ開始！タイマー実行中"
-                                                self.feedback_color = (0, 255, 0)  # 緑色
-
-                                                # タイマー開始時のセッション状態更新
+                                                self.hold_timer = None
+                                                self.feedback_text = "Exercise started! Timer running."
+                                                self.feedback_color = (0, 255, 0)
                                                 if success:
                                                     st.session_state.play_timer_start_sound = True
                                                     st.session_state.exercise_start_time = current_time
                                             else:
-                                                # 保持中のカウントダウン表示
                                                 remaining = self.hold_required - hold_duration
-                                                self.feedback_text = f"姿勢をキープ... {remaining:.1f}秒"
-                                                self.feedback_color = (0, 255, 255)  # 黄色
+                                                self.feedback_text = f"Hold posture... {remaining:.1f}s"
+                                                self.feedback_color = (0, 255, 255)
                                     else:
-                                        # 正しくない姿勢の場合は猶予期間を処理
+                                        self.hold_timer = None
                                         self._handle_grace_period(current_time)
-
-                                        # 姿勢が正しくない場合はタイマーリセット
-                                        self.hold_timer = 0
-
-                                # タイマー動作中またはレスト中
+                                # タイマー動作中
                                 elif st.session_state.get("exercise_phase") == "active" and self.exercise.timer_started:
-                                    if self.exercise.is_resting:
-                                        self.feedback_text = "休憩中... 次のセットの準備をしてください"
-                                        self.feedback_color = (0, 165, 255)  # オレンジ
+                                    self.exercise.update_timer(self.is_pose_correct)
+                                    if not self.is_pose_correct:
+                                        self._handle_grace_period(current_time)
                                     else:
-                                        self.feedback_text = "エクササイズ実施中... 姿勢を維持してください"
-                                        self.feedback_color = (0, 255, 0)  # 緑色
-
-                                        # タイマー動作中に姿勢が崩れた場合も猶予期間を提供
-                                        if not self.is_pose_correct:
-                                            self._handle_grace_period(current_time)
-                                        else:
-                                            # 正しい姿勢に戻った場合は猶予期間をリセット
-                                            self.grace_start = None
+                                        self.grace_start = None
+                                        self.feedback_text = "Exercising... Maintain posture."
+                                        self.feedback_color = (0, 255, 0)
+                                    if self.exercise.is_resting:
+                                        self.feedback_text = "Resting... Prepare for the next set."
+                                        self.feedback_color = (0, 165, 255)
 
                                 # 各関節の角度表示（デバッグ情報）
                                 if debug_mode:
@@ -636,22 +599,21 @@ def safe_audio(file_path):
         fallback_file = fallback_dir / "silent.wav"
 
         # 無音ファイルが存在しない場合は作成
-        if not fallback_file.exists():
-            try:
-                import numpy as np
-                import scipy.io.wavfile as wav
+        try:
+            import numpy as np
+            import scipy.io.wavfile as wav
 
-                # 1秒間の無音を生成（サンプルレート44100、16bitステレオ）
-                sample_rate = 44100
-                data = np.zeros((sample_rate, 2), dtype=np.int16)
-                wav.write(str(fallback_file), sample_rate, data)
-            except ImportError:
-                # scipyがない場合は警告のみ
-                st.error("音声ファイルの生成に失敗しました。scipyライブラリをインストールしてください。")
-                return None
-            except Exception as e:
-                st.error(f"音声ファイルの生成中にエラーが発生しました: {str(e)}")
-                return None
+            # 1秒間の無音を生成（サンプルレート44100、16bitステレオ）
+            sample_rate = 44100
+            data = np.zeros((sample_rate, 2), dtype=np.int16)
+            wav.write(str(fallback_file), sample_rate, data)
+        except ImportError:
+            # scipyがない場合は警告のみ
+            st.error("音声ファイルの生成に失敗しました。scipyライブラリをインストールしてください。")
+            return None
+        except Exception as e:
+            st.error(f"音声ファイルの生成中にエラーが発生しました: {str(e)}")
+            return None
 
         # 無音ファイルを再生
         return st.audio(str(fallback_file))
