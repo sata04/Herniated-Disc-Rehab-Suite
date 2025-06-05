@@ -9,7 +9,6 @@ from typing import Dict, List, Optional
 import cv2
 import mediapipe as mp
 import numpy as np
-import playsound3
 import yaml
 
 # MediaPipeとAbslのログレベルを設定
@@ -93,11 +92,10 @@ class StretchExercise:
         self.is_resting = False
         self.rest_start: Optional[float] = None
         self.angles: List[float] = []
-        self.start_sound_played = False
-        self.end_sound_played = False
         self.grace_start: Optional[float] = None
         # タイマー開始状態を追跡するフラグを追加
         self._timer_started = False
+        self.sound_to_play: Optional[str] = None
 
     # タイマー開始状態を確認するプロパティを追加
     @property
@@ -112,8 +110,6 @@ class StretchExercise:
             self.timer_start = time.time()
             self._timer_started = True
             self.is_resting = False
-            self.start_sound_played = False
-            self.end_sound_played = False
             print(f"Timer started for {self.current_stretch.name}")
             return True
         return False
@@ -122,8 +118,6 @@ class StretchExercise:
         """タイマーを停止"""
         self.timer_start = None
         self._timer_started = False
-        self.start_sound_played = False
-        self.end_sound_played = False
         self.grace_start = None
         print("Timer stopped")
         return True
@@ -247,18 +241,6 @@ class StretchExercise:
             return all(rule.min_angle <= angle <= rule.max_angle for rule in condition.rules)
         else:
             return any(rule.min_angle <= angle <= rule.max_angle for rule in condition.rules)
-
-    def play_sound(self, sound_file):
-        """
-        サウンドファイルを非同期で再生します。
-
-        Parameters:
-            sound_file (str): 再生するサウンドファイルのパス。
-        """
-        if os.path.exists(sound_file):
-            Thread(target=playsound3.playsound, args=(sound_file,), daemon=True).start()
-        else:
-            print(f"Warning: Sound file not found: {sound_file}")
 
     def draw_text(self, image, text, x, y, font_scale=0.7, color=(255, 255, 255), thickness=2):
         cv2.putText(image, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness)
@@ -493,6 +475,7 @@ class StretchExercise:
 
     def update_timer(self, all_conditions_met):
         """タイマーの状態を更新します"""
+        self.sound_to_play = None # Reset sound indicator at the beginning of each update cycle
         if not self.current_stretch or not self.current_stretch.timer.enabled:
             return
 
@@ -505,10 +488,7 @@ class StretchExercise:
                 if not self._timer_started:
                     # タイマー開始処理を確実に行う
                     self.timer_start = current_time
-                    if not self.start_sound_played:
-                        self.play_sound(os.path.join("sounds", "start.wav"))
-                        self.start_sound_played = True
-                    self.end_sound_played = False
+                    self.sound_to_play = "start"
                     self._timer_started = True  # タイマー開始フラグを設定
                     self.grace_start = None  # 猶予期間をリセット
                     print(f"Timer started at {self.timer_start}")
@@ -526,23 +506,18 @@ class StretchExercise:
     def _handle_timer_completion(self):
         """タイマー完了時の処理を行います"""
         if self.current_rep < self.current_stretch.timer.repetitions:
-            if not self.end_sound_played:
-                self.play_sound(os.path.join("sounds", "end.wav"))
-                self.end_sound_played = True
-                print(f"Completed rep {self.current_rep} of {self.current_stretch.timer.repetitions}")
+            self.sound_to_play = "end"
+            print(f"Completed rep {self.current_rep} of {self.current_stretch.timer.repetitions}")
             self.current_rep += 1
             self.is_resting = True
             self.rest_start = time.time()
             print(f"Rest started at {self.rest_start}, rest time: {self.current_stretch.timer.rest_time}s")
         else:
-            if not self.end_sound_played:
-                self.play_sound(os.path.join("sounds", "allend.wav"))
-                self.end_sound_played = True
-                print("All reps completed!")
+            self.sound_to_play = "allend"
+            print("All reps completed!")
             self.current_rep = 1
             self._timer_started = False  # タイマー完了時にフラグを落とす
         self.timer_start = None
-        self.start_sound_played = False
         self.grace_start = None
 
     def _handle_rest_time(self):
@@ -551,8 +526,6 @@ class StretchExercise:
         if rest_elapsed >= self.current_stretch.timer.rest_time:
             self.is_resting = False
             self.rest_start = None
-            self.start_sound_played = False
-            self.end_sound_played = False
 
     def _handle_grace_period(self, current_time=None):
         """猶予期間の処理を行います"""
@@ -563,8 +536,6 @@ class StretchExercise:
             self.grace_start = current_time
         elif current_time - self.grace_start >= 2:
             self.timer_start = None
-            self.start_sound_played = False
-            self.end_sound_played = False
             self.grace_start = None
             self._timer_started = False  # タイマー開始フラグをリセット
 

@@ -6,3 +6,4 @@ numpy
 playsound3
 pyyaml
 av
+scipy
