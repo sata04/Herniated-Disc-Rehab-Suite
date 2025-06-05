@@ -25,7 +25,7 @@ os.environ["TF_CPP_VMODULE"] = "xnnpack_delegate=0"  # XNNPACKデレゲートの
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 logging.getLogger("absl").setLevel(logging.ERROR)
 logging.getLogger("mediapipe").setLevel(logging.ERROR)  # MediaPipeのログを抑制
-av.logging.set_level(av.logging.PANIC)
+av.logging.set_level(av.logging.ERROR)
 
 # MediaPipeの特定の警告を無視するフィルター追加
 mediapipe_logger = logging.getLogger("mediapipe")
@@ -36,7 +36,7 @@ mediapipe_logger.addFilter(
 
 # TensorFlowの警告を完全に無視
 tf_logger = logging.getLogger("tensorflow")
-tf_logger.setLevel(logging.FATAL)  # ERRORよりも厳格なFATAL
+tf_logger.setLevel(logging.ERROR)  # ERRORよりも厳格なFATAL
 
 # Streamlitの特定の警告を無視
 warnings.filterwarnings("ignore", message="missing ScriptRunContext")
@@ -61,66 +61,34 @@ if "exercise_phase" not in st.session_state:
     st.session_state.exercise_phase = "idle"  # can be "idle", "active", "rest"
 if "dark_mode" not in st.session_state:
     st.session_state.dark_mode = False
+if "pending_sound" not in st.session_state:
+    st.session_state.pending_sound = None
 
 # Initialize posture correctness state
 if "posture_ok" not in st.session_state:
     st.session_state.posture_ok = False
 
-# ダークモード設定をローカルストレージから読み込むためのJavaScript
-st.markdown(
-    """
-    <script>
-    // Streamlitイベントリスナー
-    window.addEventListener('DOMContentLoaded', (event) => {
-        setTimeout(() => {
-            // ローカルストレージからダークモード設定を取得
-            const storedDarkMode = localStorage.getItem('dark_mode');
-            if (storedDarkMode === 'true') {
-                // ダークモードがtrueの場合、チェックボックスをクリックして同期
-                const darkModeCheckbox = document.querySelector('input[data-testid="stCheckbox"]');
-                if (darkModeCheckbox && !darkModeCheckbox.checked) {
-                    darkModeCheckbox.click();
-                }
-            }
-        }, 500); // ページ読み込み後少し遅延させる
-    });
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
-
 # Sidebar UI with improved styling
 st.sidebar.title("Herniated Disc Rehab Suite")
 st.sidebar.markdown("---")
 
-# ダークモードをローカルストレージに保存/読み込みするJavaScript
-st.markdown(
-    """
-    <script>
-    // ページ読み込み時に前回設定を取得
-    const dm = localStorage.getItem('dark_mode');
-    if(dm !== null) document.getElementById('dark_mode').checked = (dm === 'true');
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
 # Sidebar App Settings
 with st.sidebar.expander("⚙️ App Settings", expanded=False):
     # ダークモード設定が変更されたかを追跡するために古い値を保存
-    old_dark_mode = st.session_state.dark_mode
+    # old_dark_mode = st.session_state.dark_mode # No longer needed for localStorage
     st.checkbox("Dark Mode", value=st.session_state.dark_mode, key="dark_mode", help="Toggle dark/light mode")
 
-    # ダークモード設定が変更された場合、ローカルストレージに保存
-    if old_dark_mode != st.session_state.dark_mode:
-        st.markdown(
-            f"""
-            <script>
-            // ダークモード設定をローカルストレージに保存
-            localStorage.setItem('dark_mode', '{str(st.session_state.dark_mode).lower()}');
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
+    # ダークモード設定が変更された場合、ローカルストレージに保存 # Removed localStorage logic
+    # if old_dark_mode != st.session_state.dark_mode:
+    #     st.markdown(
+    #         f"""
+    #         <script>
+    #         // ダークモード設定をローカルストレージに保存
+    #         localStorage.setItem('dark_mode', '{str(st.session_state.dark_mode).lower()}');
+    #         </script>
+    #         """,
+    #         unsafe_allow_html=True,
+    #     )
 
     # 角度表示オプションを追加
     st.checkbox("Show Joint Angles", value=st.session_state.get("show_angles", False), key="show_angles", help="Display joint angle measurements")
@@ -312,11 +280,9 @@ else:
         class VideoTransformer(VideoProcessorBase):
             def __init__(self):
                 # 初期化処理を軽量化
-                self.config_path = str(Path(__file__).parent / "config" / "stretch_config.yaml")
-                print(f"Loading config from: {self.config_path}")
-
+                # Use the global config_path defined outside this class
                 try:
-                    self.exercise = StretchExercise(self.config_path)
+                    self.exercise = StretchExercise(str(config_path)) # Use global config_path
                     current_key = st.session_state.get("current_key", None)
                     if current_key is not None:
                         success = self.exercise.set_stretch(current_key)
@@ -436,7 +402,6 @@ else:
                                                 self.feedback_text = "Exercise started! Timer running."
                                                 self.feedback_color = (0, 255, 0)
                                                 if success:
-                                                    st.session_state.play_timer_start_sound = True
                                                     st.session_state.exercise_start_time = current_time
                                             else:
                                                 remaining = self.hold_required - hold_duration
@@ -498,6 +463,11 @@ else:
                                 st.session_state.current_rep = self.exercise.current_rep
                                 st.session_state.exercise_phase = "rest" if self.exercise.is_resting else "active"
                                 st.session_state.posture_ok = self.is_pose_correct
+
+                                # Check for sound events from StretchExercise
+                                if self.exercise.sound_to_play:
+                                    st.session_state.pending_sound = self.exercise.sound_to_play
+                                    self.exercise.sound_to_play = None  # Reset immediately
 
                             except Exception as e:
                                 print(f"Error processing frame: {str(e)}")
@@ -621,40 +591,12 @@ def safe_audio(file_path):
 
 # サウンドフィードバック機能の強化とリアルタイム通知
 if st.session_state.current_key is not None:
-    stretch_cfg = exercise.stretches[st.session_state.current_key]
-    total_reps = stretch_cfg.timer.repetitions if stretch_cfg.timer.enabled else 0
-
-    # セッション状態を初期化
-    if "prev_rep" not in st.session_state:
-        st.session_state.prev_rep = 0
-    if "play_timer_start_sound" not in st.session_state:
-        st.session_state.play_timer_start_sound = False
-
-    # レップカウント変更時の音声
-    prev = st.session_state.prev_rep
-    curr = st.session_state.current_rep
-    if curr != prev:
-        if curr == 1 and prev == 0:
-            # セッション開始音
-            safe_audio("sounds/start.wav")
-        elif curr > prev and curr <= total_reps:
-            # 1セット完了音
-            safe_audio("sounds/end.wav")
-        elif prev > curr or (curr == total_reps and prev < total_reps):
-            # 全セット終了音
-            safe_audio("sounds/allend.wav")
-
-    # タイマー開始時の音声 (start.wavをタイマー開始音として使用)
-    if st.session_state.play_timer_start_sound:
-        safe_audio("sounds/start.wav")
-        st.session_state.play_timer_start_sound = False
-
-    # 全セット完了時の音声フィードバック
-    if st.session_state.get("play_all_complete_sound", False):
-        safe_audio("sounds/allend.wav")
-        st.session_state.play_all_complete_sound = False
-
-    st.session_state.prev_rep = curr
+    # Play sound if pending
+    if st.session_state.get("pending_sound"):
+        sound_file_key = st.session_state.pending_sound
+        if sound_file_key in ["start", "end", "allend"]: # Ensure only valid keys are used
+            safe_audio(f"sounds/{sound_file_key}.wav")
+        st.session_state.pending_sound = None  # Clear the sound cue
 
 
 # Apply custom CSS for modern look
