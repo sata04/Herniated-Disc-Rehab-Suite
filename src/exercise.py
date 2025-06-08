@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import cv2
-# Official docs show pose and drawing_utils under mp.solutions:
-# https://ai.google.dev/edge/mediapipe/api/python/solutions/pose
 import mediapipe as mp
 import numpy as np
 import yaml
