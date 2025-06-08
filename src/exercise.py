@@ -19,7 +19,7 @@ logging.getLogger("absl").setLevel(logging.ERROR)
 @dataclass
 class TimerConfig:
     """
-    タイマー設定を保持するデータクラス。
+    Data class to hold timer settings.
     """
 
     enabled: bool
@@ -31,7 +31,7 @@ class TimerConfig:
 @dataclass
 class AngleRule:
     """
-    角度のルールを定義するデータクラス。
+    Data class to define angle rules.
     """
 
     min_angle: float
@@ -42,17 +42,17 @@ class AngleRule:
 @dataclass
 class Condition:
     """
-    複数の角度ルールを組み合わせた条件を定義するデータクラス。
+    Data class to define conditions that combine multiple angle rules.
     """
 
-    type: str  # "AND" または "OR"
+    type: str  # "AND" or "OR"
     rules: List[AngleRule]
 
 
 @dataclass
 class AngleSet:
     """
-    計算する角度のセットと、その条件を定義するデータクラス。
+    Data class to define sets of angles to calculate and their conditions.
     """
 
     landmarks: List[str]
@@ -62,7 +62,7 @@ class AngleSet:
 @dataclass
 class Stretch:
     """
-    ストレッチの情報を保持するデータクラス。
+    Data class to hold stretch information.
     """
 
     name: str
@@ -73,15 +73,15 @@ class Stretch:
 
 class StretchExercise:
     """
-    ストレッチエクササイズを管理するクラス。
+    Class to manage stretch exercises.
     """
 
     def __init__(self, config_file: str):
         """
-        StretchExerciseを初期化します。
+        Initializes StretchExercise.
 
         Parameters:
-            config_file (str): 設定ファイル（YAML）のパス。
+            config_file (str): Path to the configuration file (YAML).
         """
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_pose = mp.solutions.pose
@@ -93,19 +93,19 @@ class StretchExercise:
         self.rest_start: Optional[float] = None
         self.angles: List[float] = []
         self.grace_start: Optional[float] = None
-        # タイマー開始状態を追跡するフラグを追加
+        # Add a flag to track the timer start state
         self._timer_started = False
         self.sound_to_play: Optional[str] = None
 
-    # タイマー開始状態を確認するプロパティを追加
+    # Add a property to check the timer start state
     @property
     def timer_started(self) -> bool:
-        """タイマーが開始されているかどうか"""
+        """Whether the timer has started"""
         return self._timer_started or self.timer_start is not None
 
-    # タイマーを開始するメソッドを追加
+    # Add a method to start the timer
     def start_timer(self):
-        """タイマーを開始"""
+        """Start the timer"""
         if not self._timer_started and self.current_stretch and self.current_stretch.timer.enabled:
             self.timer_start = time.time()
             self._timer_started = True
@@ -115,7 +115,7 @@ class StretchExercise:
         return False
     
     def stop_timer(self):
-        """タイマーを停止"""
+        """Stop the timer"""
         self.timer_start = None
         self._timer_started = False
         self.grace_start = None
@@ -124,19 +124,19 @@ class StretchExercise:
 
     def _load_config(self, config_file: str) -> Dict[int, Stretch]:
         """
-        設定ファイルを読み込み、ストレッチの設定をロードします。
+        Reads the configuration file and loads stretch settings.
 
         Parameters:
-            config_file (str): 設定ファイル（YAML）のパス。
+            config_file (str): Path to the configuration file (YAML).
 
         Returns:
-            Dict[int, Stretch]: ストレッチのキーとStretchオブジェクトの辞書。
+            Dict[int, Stretch]: Dictionary of stretch keys and Stretch objects.
         """
         try:
-            # ファイルパスの存在チェックを追加
+            # Add a check for file path existence
             if not os.path.exists(config_file):
                 print(f"Config file not found: {config_file}")
-                # デフォルト設定を返す
+                # Return default settings
                 return {
                     1: Stretch(
                         name="Default Stretch",
@@ -182,7 +182,7 @@ class StretchExercise:
                     angle_sets.append(AngleSet(landmarks=angle_set["landmarks"], conditions=conditions))
 
                 key = int(stretch_config.get("key", 0))
-                if key > 0:  # 有効なキーかチェック
+                if key > 0:  # Check if the key is valid
                     stretches[key] = Stretch(name=stretch_config.get("name", f"Stretch {key}"), key=key, angle_sets=angle_sets, timer=timer)
 
             return stretches
@@ -193,13 +193,13 @@ class StretchExercise:
 
     def calculate_angle(self, a, b, c):
         """
-        3点からなる角度を計算します。
+        Calculates the angle formed by three points.
 
         Parameters:
-            a, b, c: 各点の座標。
+            a, b, c: Coordinates of each point.
 
         Returns:
-            float: 計算された角度。
+            float: Calculated angle.
         """
         try:
             a = np.array(a)
@@ -212,7 +212,7 @@ class StretchExercise:
             norm_ba = np.linalg.norm(ba)
             norm_bc = np.linalg.norm(bc)
 
-            # ゼロ除算を防ぐ
+            # Prevent division by zero
             if norm_ba < 1e-6 or norm_bc < 1e-6:
                 return 0.0
 
@@ -228,14 +228,14 @@ class StretchExercise:
 
     def check_stretch_condition(self, angle: float, condition: Condition) -> bool:
         """
-        角度が指定された条件を満たすかチェックします。
+        Checks if the angle meets the specified condition.
 
         Parameters:
-            angle (float): チェックする角度。
-            condition (Condition): 判定条件。
+            angle (float): Angle to check.
+            condition (Condition): Judgment condition.
 
         Returns:
-            bool: 条件を満たす場合はTrue。
+            bool: True if the condition is met.
         """
         if condition.type == "AND":
             return all(rule.min_angle <= angle <= rule.max_angle for rule in condition.rules)
@@ -247,19 +247,19 @@ class StretchExercise:
 
     def process_frame(self, frame, pose, landmarks, return_angles=False):
         """
-        フレームを処理し、ストレッチの状態を更新します。
+        Processes the frame and updates the stretch state.
 
         Parameters:
-            frame: カメラからのフレーム。
-            pose: MediaPipeのポーズ推定オブジェクト。
-            landmarks: ポーズランドマーク。
-            return_angles: 角度情報を返すかどうか
+            frame: Frame from the camera.
+            pose: MediaPipe pose estimation object.
+            landmarks: Pose landmarks.
+            return_angles: Whether to return angle information.
 
         Returns:
-            image: 処理後のフレーム。
-            angle_status: 各関節の角度と評価結果 (return_angles=Trueの場合)
+            image: Processed frame.
+            angle_status: Angle and evaluation result for each joint (if return_angles=True).
         """
-        # ストレッチが選択されていない場合は基本的なランドマーク表示のみ
+        # If no stretch is selected, display basic landmarks only
         if self.current_stretch is None:
             image = frame.copy()
             self.mp_drawing.draw_landmarks(
@@ -277,16 +277,16 @@ class StretchExercise:
         all_conditions_met = True
         all_descriptions = []
 
-        # 角度評価結果を格納する辞書
+        # Dictionary to store angle evaluation results
         angle_status = {}
 
-        # 半透明の黒いオーバーレイを追加してテキスト読みやすくする
+        # Add a translucent black overlay to make text easier to read
         h, w = image.shape[:2]
         overlay = image.copy()
-        cv2.rectangle(overlay, (0, 0), (w, 50), (0, 0, 0), -1)  # 上部に黒いバー
-        cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)  # 透明度30%で合成
+        cv2.rectangle(overlay, (0, 0), (w, 50), (0, 0, 0), -1)  # Black bar at the top
+        cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)  # Composite with 30% transparency
 
-        # 現在のストレッチ名を画面上部に表示
+        # Display the current stretch name at the top of the screen
         stretch_name = self.current_stretch.name
         if isinstance(stretch_name, str):
             try:
@@ -311,7 +311,7 @@ class StretchExercise:
             angle = self.calculate_angle(points[0], points[1], points[2])
             self.angles.append(angle)
 
-            # 各条件を個別に判定
+            # Judge each condition individually
             conditions_met = []
             for condition in angle_set.conditions:
                 condition_met = self.check_stretch_condition(angle, condition)
@@ -320,11 +320,11 @@ class StretchExercise:
                     if rule.description:
                         all_descriptions.append(rule.description)
 
-            # 角度セット全体として条件を満たすか判定
-            set_conditions_met = any(conditions_met)  # OR条件に変更（どれか1つの条件が満たされればOK）
+            # Judge if the angle set as a whole meets the conditions
+            set_conditions_met = any(conditions_met)  # Change to OR condition (OK if any one condition is met)
             all_conditions_met = all_conditions_met and set_conditions_met
 
-            # 角度情報と評価結果を記録
+            # Record angle information and evaluation results
             angle_status[joint_name] = {
                 "angle": angle,
                 "is_correct": set_conditions_met,
@@ -334,66 +334,66 @@ class StretchExercise:
             # 角度と結果を角度ごとに分かりやすく表示
             base_y = 80 + angle_set_index * 40
 
-            # 角度値と条件の結果を表示する部分を修正
+            # Correct the part that displays angle values and condition results
             angle_text = f"Angle {angle_set_index+1}: {int(angle)}°"
             self.draw_text(image, angle_text, 10, base_y, font_scale=0.8)
 
-            # OK/NGの表示位置を計算
+            # Calculate the display position of OK/NG
             text_size = cv2.getTextSize(angle_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-            x_offset = 10 + text_size[0] + 10  # 角度テキストの後ろに少し空白を入れる
+            x_offset = 10 + text_size[0] + 10  # Add a little space after the angle text
 
-            # 判定結果を表示
+            # Display judgment result
             result_text = "OK" if set_conditions_met else "NG"
             color_txt = (0, 255, 0) if set_conditions_met else (0, 0, 255)
             self.draw_text(image, result_text, x_offset, base_y, font_scale=0.8, color=color_txt, thickness=2)
 
-            # 角度ラインの描画
-            cv2.line(image, points[0], points[1], (255, 255, 0), 3)  # 1つ目の線
-            cv2.line(image, points[1], points[2], (255, 255, 0), 3)  # 2つ目の線
+            # Draw angle lines
+            cv2.line(image, points[0], points[1], (255, 255, 0), 3)  # First line
+            cv2.line(image, points[1], points[2], (255, 255, 0), 3)  # Second line
 
-            # 各点を色付きで強調表示
+            # Highlight each point with color
             for i, point in enumerate(points):
-                color = (0, 0, 255) if i == 1 else (0, 255, 255)  # 中心点は赤、その他は黄色
+                color = (0, 0, 255) if i == 1 else (0, 255, 255)  # Center point is red, others are yellow
                 cv2.circle(image, point, 8, color, -1)
 
-            # 角度の弧を描画
+            # Draw the arc of the angle
             angle_viz_radius = 30
 
-            # 角度を可視化する円弧を描く - 計算方法を改善
+            # Draw an arc to visualize the angle - improved calculation method
             ba = np.array(points[0]) - np.array(points[1])
             bc = np.array(points[2]) - np.array(points[1])
 
-            # 角度を計算（内積を使用）
-            # アーク描画には直接角度から生成するため、cosine_angleは不要
+            # Calculate angle (using dot product)
+            # cosine_angle is not needed because it is generated directly from the angle for arc drawing
 
-            # ベクトルの向きを考慮して円弧の開始角と終了角を決定
+            # Determine the start and end angles of the arc considering the vector direction
             start_angle = np.arctan2(ba[1], ba[0])
             end_angle = np.arctan2(bc[1], bc[0])
 
-            # 円弧の角度範囲を適切に設定
-            # 角度が180度を超える場合に対応
+            # Set the angle range of the arc appropriately
+            # Corresponds to cases where the angle exceeds 180 degrees
             if abs(end_angle - start_angle) > np.pi:
                 if end_angle > start_angle:
                     start_angle += 2 * np.pi
                 else:
                     end_angle += 2 * np.pi
 
-            # 円弧の色を条件に応じて変更
+            # Change the arc color according to the condition
             arc_color = (0, 255, 0) if set_conditions_met else (0, 0, 255)
 
-            # OpenCVのellipseは角度をdegree単位で必要とする
+            # OpenCV's ellipse requires angles in degrees
             start_deg = np.degrees(start_angle)
             end_deg = np.degrees(end_angle)
 
-            # 開始角と終了角を確実に円弧が短い方を描くよう調整
+            # Adjust start and end angles to ensure the shorter arc is drawn
             if abs(end_deg - start_deg) > 180:
                 if end_deg > start_deg:
                     end_deg, start_deg = start_deg, end_deg
 
-            # 円弧を描画
+            # Draw arc
             cv2.ellipse(image, points[1], (angle_viz_radius, angle_viz_radius), 0, start_deg, end_deg, arc_color, 2)
 
-            # 角度値をテキストで表示 - 位置を調整
+            # Display angle value as text - adjust position
             mid_angle = (start_angle + end_angle) / 2
             angle_text_pos = (
                 int(points[1][0] + angle_viz_radius * 1.8 * np.cos(mid_angle)),
@@ -401,21 +401,21 @@ class StretchExercise:
             )
             cv2.putText(image, f"{int(angle)}°", angle_text_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, arc_color, 2)
 
-        # タイマー状態の更新
-        # return_angles=TrueのときはVideoTransformer側でタイマー制御するためここでは呼ばない
+        # Update timer status
+        # Not called here if return_angles=True because timer control is handled by VideoTransformer
         if not return_angles:
             self.update_timer(all_conditions_met)
 
-        # フィードバック領域のオーバーレイ
+        # Overlay for feedback area
         base_y = max(80 + len(self.angles) * 40, 180)
-        text_bg_height = min(base_y + 120, h - 20)  # 画面の下部を超えないように
+        text_bg_height = min(base_y + 120, h - 20)  # Do not exceed the bottom of the screen
         overlay = image.copy()
         cv2.rectangle(overlay, (0, base_y - 40), (350, text_bg_height), (0, 0, 0), -1)
         image = cv2.addWeighted(overlay, 0.7, image, 0.3, 0)
 
-        # タイマー情報の表示 (英語)
+        # Display timer information (English)
         if self.current_stretch.timer.enabled:
-            timer_y = base_y
+            timer_y = base_y  # Y coordinate for timer display
             if self.is_resting:
                 rest_remaining = max(0, self.current_stretch.timer.rest_time - (time.time() - self.rest_start))
                 self.draw_text(image, f"Rest time: {int(rest_remaining)} sec", 10, timer_y, font_scale=0.9, color=(0, 165, 255))
@@ -427,42 +427,42 @@ class StretchExercise:
                 image, f"Set: {self.current_rep}/{self.current_stretch.timer.repetitions}", 10, timer_y + 40, font_scale=0.9, color=(255, 255, 255)
             )
 
-        # 指示テキストを表示
+        # Display instruction text
         for i, desc in enumerate(all_descriptions):
             desc_y = text_bg_height - 20 - (len(all_descriptions) - 1 - i) * 30
             self.draw_text(image, f"• {desc}", 10, desc_y, font_scale=0.7, color=(255, 255, 255))
 
-        # 姿勢のOK/NGに基づいて全体的な色を設定
+        # Set overall color based on posture OK/NG
         pose_color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
 
-        # ステータステキストを表示
-        status_text = "CORRECT" if all_conditions_met else "INCORRECT"
+        # Display status text
+        status_text = "CORRECT" if all_conditions_met else "INCORRECT"  # Text for posture status (CORRECT/INCORRECT)
         status_color = (0, 255, 0) if all_conditions_met else (0, 0, 255)
 
-        # 画面上部にステータステキストを目立つように表示
+        # Display status text prominently at the top of the screen
         cv2.rectangle(image, (w - 200, 5), (w - 20, 45), (0, 0, 0), -1)
         self.draw_text(image, status_text, w - 190, 35, font_scale=0.8, color=status_color, thickness=2)
 
-        # 姿勢の正確さに基づいて枠を描画
+        # Draw a border based on posture accuracy
         cv2.rectangle(image, (0, 0), (w - 1, h - 1), pose_color, 3)
 
-        # 角度情報を返すかどうか
+        # Whether to return angle information
         return (image, angle_status) if return_angles else image
 
     def set_stretch(self, key: int):
         """
-        現在のストレッチを設定します。
+        Sets the current stretch.
 
         Parameters:
-            key (int): 設定するストレッチのキー。
+            key (int): Key of the stretch to set.
 
         Returns:
-            bool: ストレッチの設定に成功した場合はTrue。
+            bool: True if setting the stretch was successful.
         """
         if key in self.stretches:
             self.current_stretch = self.stretches[key]
             self.timer_start = None
-            self._timer_started = False  # タイマー開始フラグをリセット
+            self._timer_started = False  # Reset timer start flag
             self.current_rep = 1
             self.is_resting = False
             self.rest_start = None
@@ -474,7 +474,7 @@ class StretchExercise:
         return False
 
     def update_timer(self, all_conditions_met):
-        """タイマーの状態を更新します"""
+        """Updates the timer state"""
         self.sound_to_play = None # Reset sound indicator at the beginning of each update cycle
         if not self.current_stretch or not self.current_stretch.timer.enabled:
             return
@@ -482,17 +482,17 @@ class StretchExercise:
         current_time = time.time()
 
         if all_conditions_met and not self.is_resting:
-            # 姿勢が正しく、休憩中でない場合の処理
+            # Processing when posture is correct and not resting
             if self.timer_start is None:
-                # タイマーがまだ開始されていない場合
+                # If the timer has not started yet
                 if not self._timer_started:
-                    # タイマー開始処理を確実に行う
+                    # Ensure timer start processing
                     self.timer_start = current_time
                     self.sound_to_play = "start"
-                    self._timer_started = True  # タイマー開始フラグを設定
-                    self.grace_start = None  # 猶予期間をリセット
+                    self._timer_started = True  # Set timer start flag
+                    self.grace_start = None  # Reset grace period
                     print(f"Timer started at {self.timer_start}")
-            # timer_start が設定されている場合のみ経過時間を計算
+            # Calculate elapsed time only if timer_start is set
             if self.timer_start is not None:
                 elapsed_time = current_time - self.timer_start
                 if elapsed_time >= self.current_stretch.timer.duration:
@@ -500,11 +500,11 @@ class StretchExercise:
         elif self.is_resting:
             self._handle_rest_time()
         else:
-            # 姿勢が正しくない場合の処理
+            # Processing when posture is incorrect
             self._handle_grace_period(current_time)
 
     def _handle_timer_completion(self):
-        """タイマー完了時の処理を行います"""
+        """Handles timer completion"""
         if self.current_rep < self.current_stretch.timer.repetitions:
             self.sound_to_play = "end"
             print(f"Completed rep {self.current_rep} of {self.current_stretch.timer.repetitions}")
@@ -516,19 +516,19 @@ class StretchExercise:
             self.sound_to_play = "allend"
             print("All reps completed!")
             self.current_rep = 1
-            self._timer_started = False  # タイマー完了時にフラグを落とす
+            self._timer_started = False  # Clear flag when timer is complete
         self.timer_start = None
         self.grace_start = None
 
     def _handle_rest_time(self):
-        """休憩時間の処理を行います"""
+        """Handles rest time"""
         rest_elapsed = time.time() - self.rest_start
         if rest_elapsed >= self.current_stretch.timer.rest_time:
             self.is_resting = False
             self.rest_start = None
 
     def _handle_grace_period(self, current_time=None):
-        """猶予期間の処理を行います"""
+        """Handles grace period"""
         if current_time is None:
             current_time = time.time()
 
@@ -537,12 +537,12 @@ class StretchExercise:
         elif current_time - self.grace_start >= 2:
             self.timer_start = None
             self.grace_start = None
-            self._timer_started = False  # タイマー開始フラグをリセット
+            self._timer_started = False  # Reset timer start flag
 
     @staticmethod
     def init_camera():
-        """カメラを初期化して返します"""
-        for i in range(2):  # まず0番、次に1番を試す
+        """Initializes and returns the camera"""
+        for i in range(2):  # Try 0 first, then 1
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 width = 640
@@ -553,11 +553,11 @@ class StretchExercise:
         return None, None, None
 
     def draw_menu(self, frame):
-        """メニュー画面を描画します"""
-        self.draw_text(frame, "press the key", 50, 50, font_scale=1)
-        self.draw_text(frame, "1-9: select the stretch", 50, 100)
-        self.draw_text(frame, "q: quit", 50, 150)
-        self.draw_text(frame, "space: back to home", 50, 200)
+        """Draws the menu screen"""
+        self.draw_text(frame, "Press the key", 50, 50, font_scale=1)
+        self.draw_text(frame, "1-9: Select the stretch", 50, 100)
+        self.draw_text(frame, "Q: Quit", 50, 150)
+        self.draw_text(frame, "Space: Back to home", 50, 200)
 
         y = 250
         for key_num, stretch in sorted(self.stretches.items()):
@@ -567,7 +567,7 @@ class StretchExercise:
 
 def main():
     """
-    メイン関数。カメラを起動し、ストレッチエクササイズを開始します。
+    Main function. Starts the camera and begins the stretch exercise.
     """
     exercise = StretchExercise(os.path.join("config", "stretch_config.yaml"))
     cap, width, height = exercise.init_camera()
@@ -638,6 +638,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # 実行ブロックをコメントアウトし、ライブラリとして利用されるようにします。
+    # Comment out the execution block to use as a library.
     # main()
     pass
