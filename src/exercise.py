@@ -3,15 +3,13 @@ import logging
 import os  # for handling file paths
 import time
 from dataclasses import dataclass
-from threading import Thread
 from typing import Dict, List, Optional
 
 import cv2
+# Official docs show pose and drawing_utils under mp.solutions:
+# https://ai.google.dev/edge/mediapipe/api/python/solutions/pose
 import mediapipe as mp
 import numpy as np
-import playsound3
-from mediapipe import solutions
-from mediapipe.framework.formats import landmark_pb2
 import yaml
 
 # MediaPipeとAbslのログレベルを設定
@@ -301,7 +299,7 @@ class StretchExercise:
         for angle_set_index, angle_set in enumerate(self.current_stretch.angle_sets):
             points = []
             point_indices = []
-            joint_name = f"angle_{angle_set_index+1}"
+            joint_name = f"angle_{angle_set_index + 1}"
 
             for landmark_name in angle_set.landmarks:
                 landmark_index = getattr(self.mp_pose.PoseLandmark, landmark_name).value
@@ -338,7 +336,7 @@ class StretchExercise:
             base_y = 80 + angle_set_index * 40
 
             # Correct the part that displays angle values and condition results
-            angle_text = f"Angle {angle_set_index+1}: {int(angle)}°"
+            angle_text = f"Angle {angle_set_index + 1}: {int(angle)}°"
             self.draw_text(image, angle_text, 10, base_y, font_scale=0.8)
 
             # Calculate the display position of OK/NG
@@ -419,9 +417,20 @@ class StretchExercise:
         # Display timer information (English)
         if self.current_stretch.timer.enabled:
             timer_y = base_y  # Y coordinate for timer display
-            if self.is_resting:
-                rest_remaining = max(0, self.current_stretch.timer.rest_time - (time.time() - self.rest_start))
-                self.draw_text(image, f"Rest time: {int(rest_remaining)} sec", 10, timer_y, font_scale=0.9, color=(0, 165, 255))
+            if self.is_resting and self.rest_start is not None:
+                rest_remaining = max(
+                    0,
+                    self.current_stretch.timer.rest_time
+                    - (time.time() - self.rest_start),
+                )
+                self.draw_text(
+                    image,
+                    f"Rest time: {int(rest_remaining)} sec",
+                    10,
+                    timer_y,
+                    font_scale=0.9,
+                    color=(0, 165, 255),
+                )
             elif self.timer_start is not None:
                 elapsed = time.time() - self.timer_start
                 remaining = max(0, self.current_stretch.timer.duration - elapsed)
@@ -525,6 +534,8 @@ class StretchExercise:
 
     def _handle_rest_time(self):
         """Handles rest time"""
+        if self.rest_start is None:
+            return
         rest_elapsed = time.time() - self.rest_start
         if rest_elapsed >= self.current_stretch.timer.rest_time:
             self.is_resting = False
@@ -574,7 +585,7 @@ def main():
     """
     exercise = StretchExercise(os.path.join("config", "stretch_config.yaml"))
     cap, width, height = exercise.init_camera()
-    if cap is None:
+    if cap is None or width is None or height is None:
         print("Failed to open camera")
         return
 
