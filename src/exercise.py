@@ -9,6 +9,9 @@ from typing import Dict, List, Optional
 import cv2
 import mediapipe as mp
 import numpy as np
+import playsound3
+from mediapipe import solutions
+from mediapipe.framework.formats import landmark_pb2
 import yaml
 
 # MediaPipeとAbslのログレベルを設定
@@ -113,7 +116,7 @@ class StretchExercise:
             print(f"Timer started for {self.current_stretch.name}")
             return True
         return False
-    
+
     def stop_timer(self):
         """Stop the timer"""
         self.timer_start = None
