@@ -283,7 +283,7 @@ else:
         class VideoTransformer(VideoProcessorBase):
             _transform_instance_key = THE_KEY_FOR_THIS_RUN
 
-            def __init__(self):
+            def __init__(self, model_complexity):
                 super().__init__()
                 # 初期化処理を軽量化
                 # Use the global config_path defined outside this class
@@ -310,7 +310,7 @@ else:
                 self.pose = mp.solutions.pose.Pose(
                     min_detection_confidence=0.5,
                     min_tracking_confidence=0.5,
-                    model_complexity=1,  # デフォルト値を使用
+                    model_complexity=model_complexity,
                     static_image_mode=False,  # 動画ストリーム向けトラッキング
                 )
 
@@ -531,7 +531,7 @@ else:
         webrtc_streamer(
             key=f"stretch-exercise-{st.session_state.current_key}",
             mode=WebRtcMode.SENDRECV,
-            video_processor_factory=VideoTransformer,
+            video_processor_factory=lambda: VideoTransformer(model_complexity=model_complexity),
             media_stream_constraints={
                 "video": {"width": {"ideal": width}, "height": {"ideal": height}, "facingMode": "user"},  # フロントカメラを優先、自然な向きを保持
                 "audio": False,
