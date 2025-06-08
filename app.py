@@ -353,6 +353,17 @@ else:
                     # フリップ操作を追加して自然な向きにする
                     img = cv2.flip(img, 1)
 
+                    # Ensure the correct stretch is active
+                    current_key = st.session_state.get("current_key")
+                    if (
+                        current_key is not None
+                        and (
+                            self.exercise.current_stretch is None
+                            or self.exercise.current_stretch.key != current_key
+                        )
+                    ):
+                        self.exercise.set_stretch(current_key)
+
                     # 画面サイズを取得
                     h, w = img.shape[:2]
 
