@@ -134,7 +134,7 @@ elif stop:
 
 # Display current date and time in sidebar footer
 st.sidebar.markdown("---")
-current_date = datetime.now().strftime("%Y年%m月%d日")
+current_date = datetime.now().strftime("%Y-%m-%d")
 st.sidebar.caption(f"Today: {current_date}")
 
 # Main layout
@@ -446,7 +446,7 @@ else:
                                                 y_pos += 25
 
                                 # 姿勢ステータス（OK/NG）表示を強調表示
-                                posture_text = "姿勢OK" if self.is_pose_correct else "姿勢NG"
+                                posture_text = "Posture OK" if self.is_pose_correct else "Posture NG"
                                 posture_color = (0, 255, 0) if self.is_pose_correct else (0, 0, 255)
                                 # 濃い背景で目立たせる
                                 cv2.rectangle(display_img, (20, 15), (200, 45), (0, 0, 0), -1)
@@ -485,13 +485,13 @@ else:
                             )
 
                             cv2.putText(
-                                display_img, "ストレッチを選択してください", (w // 2 - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+                                display_img, "Please select a stretch", (w // 2 - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
                             )
                     else:
                         # ポーズが検出されない場合のプロンプト
-                        cv2.putText(display_img, "ポーズが検出されません", (w // 2 - 150, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        cv2.putText(display_img, "Pose not detected", (w // 2 - 150, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         cv2.putText(
-                            display_img, "カメラの前に立ってください", (w // 2 - 170, h // 2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2
+                            display_img, "Please stand in front of the camera", (w // 2 - 170, h // 2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2
                         )
 
                     return av.VideoFrame.from_ndarray(display_img, format="bgr24")
@@ -557,7 +557,7 @@ def safe_audio(file_path):
         return st.audio(str(sound_path))
     else:
         # 音声ファイルが見つからない場合の処理
-        st.warning(f"音声ファイルが見つかりません: {sound_path}")
+        st.warning(f"Sound file not found: {sound_path}")
         # デバッグ用に検索パスを表示
         logging.info(f"Sound file search path: {sound_path}")
         logging.info(f"Current working directory: {os.getcwd()}")
@@ -579,10 +579,10 @@ def safe_audio(file_path):
             wav.write(str(fallback_file), sample_rate, data)
         except ImportError:
             # scipyがない場合は警告のみ
-            st.error("音声ファイルの生成に失敗しました。scipyライブラリをインストールしてください。")
+            st.error("Failed to generate sound file. Please install the scipy library.")
             return None
         except Exception as e:
-            st.error(f"音声ファイルの生成中にエラーが発生しました: {str(e)}")
+            st.error(f"An error occurred while generating the sound file: {str(e)}")
             return None
 
         # 無音ファイルを再生
