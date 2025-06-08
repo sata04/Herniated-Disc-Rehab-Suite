@@ -180,6 +180,9 @@ else:
     # Create a 70/30 split layout for video and controls
     video_col, info_col = st.columns([7, 3])
 
+    # Capture current_key for VideoTransformer instance
+    THE_KEY_FOR_THIS_RUN = st.session_state.current_key
+
     with info_col:
         # Get current exercise details
         stretch = exercise.stretches[st.session_state.current_key]
@@ -278,18 +281,27 @@ else:
         width, height = map(int, resolution.split("x"))
 
         class VideoTransformer(VideoProcessorBase):
+            _transform_instance_key = THE_KEY_FOR_THIS_RUN
+
             def __init__(self):
+                super().__init__()
                 # 初期化処理を軽量化
                 # Use the global config_path defined outside this class
                 try:
                     self.exercise = StretchExercise(str(config_path)) # Use global config_path
-                    current_key = st.session_state.get("current_key", None)
-                    if current_key is not None:
-                        success = self.exercise.set_stretch(current_key)
+                    init_stretch_key = self.__class__._transform_instance_key
+                    print(f"VideoTransformer: Initializing for key: {init_stretch_key}")
+                    if init_stretch_key is not None:
+                        success = self.exercise.set_stretch(init_stretch_key)
                         if not success:
-                            print(f"Failed to set stretch key: {current_key}")
+                            print(f"VideoTransformer: Failed to set stretch for key: {init_stretch_key}")
+                        else:
+                            if self.exercise.current_stretch:
+                                print(f"VideoTransformer: Successfully set stretch to key {init_stretch_key}, name: {self.exercise.current_stretch.name}")
+                            else:
+                                print(f"VideoTransformer: set_stretch succeeded for key {init_stretch_key} but current_stretch is None") # Should not happen
                     else:
-                        print("No current stretch key set")
+                        print("VideoTransformer: No stretch key captured for initialization.")
                 except Exception as e:
                     print(f"Error initializing StretchExercise: {e}")
                     self.exercise = None
